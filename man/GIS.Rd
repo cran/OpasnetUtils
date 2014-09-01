@@ -3,17 +3,16 @@
 \alias{GIS.Exposure}
 \alias{GIS.Concentration.matrix}
 \title{
-Handling spatially distributed variables
+Opasnet spatially distributed data interfaces
 }
 \description{
-Currently there are only GIS functions for producing spatial concentration maps (\code{GIS.Concentration.matrix}) and using (closed) spatial 
-population data to calculate exposure (\code{GIS.Exposure}). 
+Currently there are only two GIS functions: one for producing spatial concentration maps (\code{GIS.Concentration.matrix}) and one for using spatial 
+population data and concentration maps to calculate exposure (\code{GIS.Exposure}). 
 }
 \usage{
 GIS.Concentration.matrix(Emission, LO, LA, distx = 10.5, disty = 10.5, 
     resolution = 1, N = 1000, dbug = FALSE, ...)
-GIS.Exposure(Concentration.matrix, LO = NULL, LA = NULL, distx = 10.5, 
-    disty = 10.5, resolution = 1, dbug = FALSE, ...)
+GIS.Exposure(Concentration.matrix, dbug = FALSE, ...)
 }
 
 \arguments{
@@ -53,8 +52,7 @@ The concentration matrix is computed using PILTTI source-receiver-matrices (\url
 They are originally for modeling PM2.5 distributions in a few Finnish cities between the years 2000 and 2003. To produce a rudimentary probability distribution 
 these matrices are randomized between iterations. 
 
-Exposure is calculated by matching a concentration matrix to Finnish population data. Currently used data is closed and its usage hard coded, 
-but open data exists (\url{http://en.opasnet.org/w/Special:Opasnet_Base?id=op_en2949.2012}) and this function should be updated to be more adaptable. 
+Exposure is calculated by matching a concentration matrix to Finnish population data (\url{http://en.opasnet.org/w/Special:Opasnet_Base?id=op_en2949.2012}).
 
 LA and LO are not required arguments for exposure, but speed the computation significantly.
 
@@ -64,7 +62,8 @@ See also:
 \value{
 \code{GIS.Concentration.matrix} returns an \code{ovariable} whose output is a grid defined as bins for coordinates. 
 
-\code{GIS.Exposure} returns an \code{ovariable} whose output is concentration * population, with spatial information stripped to keep the data closed.
+\code{GIS.Exposure} returns an \code{ovariable} whose output is concentration * population. All population data that matches cells defined by the
+concentration matrix is included in the output.
 }
 
 \author{

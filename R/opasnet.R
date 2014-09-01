@@ -10,7 +10,7 @@ opasnet.data <- function(filename,wiki='', unzip='') {
 
 	now <- Sys.time()
 	
-	file <- opbase.file_url(filename, wiki)
+	file <- opasnet.file_url(filename, wiki)
 	
 	if (unzip != '')
 	{
@@ -40,7 +40,7 @@ opasnet.csv <- function(filename, wiki='', unzip = '', ...) {
 
 	now <- Sys.time()
 	
-	file <- opbase.file_url(filename, wiki)
+	file <- opasnet.file_url(filename, wiki)
 
 	if (unzip != '')
 	{
@@ -60,8 +60,40 @@ opasnet.csv <- function(filename, wiki='', unzip = '', ...) {
 	
 }
 
+# Get R data from Opasnet
+#
+# filename - Name of the file
+# wiki - Source Wiki: opasnet_en (default), opasnet_fi, heande (.htaccess protected)
+# unzip - File name in package (if compressed)
+#
+# Loads file contents to .GlobalEnv
+
+#opasnet.R <- function(filename,wiki='', unzip='') {
+#	
+#	now <- Sys.time()
+#	
+#	file <- opbase.file_url(filename, wiki)
+#	
+#	if (unzip != '')
+#	{
+#		f <- tempfile(pattern = 'opasnet.R.', fileext = '.zip')
+#		bin <- getBinaryURL(file)
+#		con <- file(f, open = "wb")
+#		writeBin(bin, con)
+#		close(con)
+#		con <- unz(f, unzip)
+#		load(con, .GlobalEnv)
+#		#return(paste(readLines(con),collapse="\n"))
+#	}
+#	else
+#	{
+#		load(getURL(file), .GlobalEnv)
+#		#return(getURL(file))
+#	}
+#}
+
 # Private function to get file url for given wiki
-opbase.file_url <- function(filename, wiki)
+opasnet.file_url <- function(filename, wiki)
 {
 	# Parse arguments
 	targs <- strsplit(commandArgs(trailingOnly = TRUE),",")
@@ -128,3 +160,24 @@ opbase.file_url <- function(filename, wiki)
 #}
 #else {return(ge#tURL(file))}
 #}
+
+opasnet.page <- function(pagename, wiki = "") {
+	if (wiki == '')
+	{
+		if (is.null(args$user)) stop('Wiki cannot be resolved!')
+		wiki <- args$user
+	}
+	if (wiki == "opasnet_en" | wiki == "op_en")
+	{
+		url <- paste("http://en.opasnet.org/en-opwiki/index.php?title=", pagename, sep = "")
+	}
+	if (wiki == "opasnet_fi" | wiki == "op_fi")
+	{
+		url <- paste("http://fi.opasnet.org/fi_wiki/index.php?title=", pagename, sep = "")
+	}
+	if (wiki == 'heande')
+	{
+		url <- paste("http://",args$ht_username,":",args$ht_password,"@heande.opasnet.org/heande/index.php?title=", pagename, sep = "")
+	}
+	return(getURL(url))
+}

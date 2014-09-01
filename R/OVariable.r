@@ -36,13 +36,14 @@ Ovariable <- function(
 		dependencies = data.frame(), 
 		ddata = character(),
 		output = data.frame(),
-		subset = NULL,
-		getddata = TRUE, # will dynamic data be immediately be downloaded, as opposed waiting until variable output is Evaluated
-		save = FALSE, # will the variable be saved on the server using objects.put
-		public = TRUE, # will the saved variable be public or private
+		marginal = logical(),
+		subset = character(), # add subset postfix to ddata e.g. "Op_enXXXX" -> "Op_enXXXX.subset"
+		getddata = TRUE, # download dynamic data immediately (as opposed to waiting until evaluation)
+		save = FALSE, # save on server using objects.put
+		public = TRUE, # if save = TRUE, use objects.store instead to make it publicly available
 		...
 ) {
-	if (! is.null(subset)) ddata <- paste(ddata, opbase.sanitize_subset_name(subset), sep='.')
+	if (length(subset) > 0) ddata <- paste(ddata, opbase.sanitize_subset_name(subset), sep='.')
 	
 	out <- new(
 			"ovariable",
@@ -51,7 +52,8 @@ Ovariable <- function(
 			formula = formula,
 			dependencies = dependencies,
 			ddata = ddata,
-			output = output
+			output = output,
+			marginal = marginal
 	)
 	if (getddata) out <- ddata_apply(out)
 	if (save){
@@ -84,6 +86,12 @@ setMethod(
 		f = "Ops", 
 		signature = signature(e1 = "ovariable", e2 = "ovariable"), 
 		definition = function(e1, e2) {
+			
+			# EvalOutput if not done yet
+			
+			if(nrow(e1@output) == 0) e1 <- EvalOutput(e1)
+			if(nrow(e2@output) == 0) e2 <- EvalOutput(e2)
+			
 			# First check presence of name specific Result-columns
 			
 			test1 <- "Result" %in% colnames(e1@output)
@@ -160,13 +168,21 @@ setMethod(
 )
 
 # SETMETHOD MERGE ########### merge of ovariables merges the 'output' slot by index columns except 'Unit'.
+
 setMethod(f = "merge", 
 		signature = signature(x = "ovariable", y = "ovariable"),
-		definition = function(x, y, all = FALSE, ...) {
+		definition = function(x, y, all = FALSE, sort = FALSE, ...) {
 			if (nrow(x@output) == 0) stop("X output missing!")
 			if (nrow(y@output) == 0) stop("Y output missing!")
-			#test <- intersect(c(colnames(x@output[x@marginal]), colnames(y@output[y@marginal])))
-			temp <- merge(x@output, y@output, all = all, ...)#, by = test)
+			
+			x@output <- dropall(x@output)
+			y@output <- dropall(y@output)
+			
+			temp <- fill.na.merge(x, y)
+			x <- temp[[1]]
+			y <- temp[[2]]
+			
+			temp <- merge(x@output, y@output, all = all, sort = sort, ...)#, by = test)
 			temp <- new("ovariable", output = temp)
 			#temp <- CheckMarginals(temp, deps = list(x,y))
 			return(temp)
@@ -225,10 +241,14 @@ setMethod(
 setMethod(
 		f = "summary", 
 		signature = signature(object = "ovariable"), 
-		definition = function(object, function_names = character(), marginals = character(), ...) {
-			test <- paste(object@name, "Result", sep = "") %in% colnames(object@output)
-			rescol <- ifelse(test, paste(object@name, "Result", sep = ""), "Result")
+		definition = function(object, function_names = character(), marginals = character(), hide_source = TRUE, ...) {
+			#test <- paste(object@name, "Result", sep = "") %in% colnames(object@output)
+			#rescol <- ifelse(test, paste(object@name, "Result", sep = ""), "Result")
 			#object@output <- object@output[ , -grep("Description|Source", colnames(object@output))] # not a necessary line
+			
+			# EvalOutput if not done yet
+			
+			if(nrow(object@output) == 0) object <- EvalOutput(object)
 			
 			# If no function names are defined then use defaults which depend on whether the data is probabilistic or not
 			if("Iter" %in% colnames(object@output) && !"Iter" %in% marginals) {
@@ -248,12 +268,27 @@ setMethod(
 			# If marginals are not defined the data is assumed probabilistic and the summary to be about the distribution
 			if(length(marginals)==0) {
 				marginals <- colnames(object@output)[object@marginal & colnames(object@output) != "Iter"]
+				
+				# Hide single source source-columns if hide_source is TRUE.
+				if (hide_source == TRUE) {
+					source_cols <- marginals[grep("Source$", marginals)]
+					for (i in source_cols) {
+						locs <- unique(object@output[[i]])
+						locs <- locs[!is.na(locs)]
+						if (length(locs) == 1) {
+							marginals <- marginals[marginals != i]
+						}
+					}
+				}
 			}
+			
+			# Remove NA results to reduce problems
+			object@output <- object@output[!is.na(result(object)),]
 			
 			# Apply the selected functions
 			temp <- list()
 			for(fun in functions){
-				temp[[length(temp)+1]] <- tapply(object@output[[rescol]], object@output[marginals], fun)
+				temp[[length(temp)+1]] <- tapply(result(object), object@output[marginals], fun)
 			}
 			#out <- data.frame()
 			
@@ -357,3 +392,52 @@ ddata_apply <- function(
 }
 
 
+# continuousOps merges two ovariables by continuous indices and performs an operation.
+# O1, O2 are ovariables. O1 is of main interest, while O2 has information that links to O2 via continuous index or indices.
+# All locations in these continuous indices of O1 are created for O2 assuming that the value in the previous location of cols applies.
+# Note that this is asymmetric. Locations in O2 that are missing from O1 are omitted.
+# continuousOps assumes that all continuous indices are in the same dimension, the first one being the main index.
+# Additional indices affect the outcome only if there are (approximate) ties. Therefore, avoid using this with several continuous indices.
+# However, if continuous indices are NOT shared by both O1 and O2, they cause no trouble.
+# fun is the name of a function that is performed after merge. Typically it is '*', '+' or some other Ops.
+# cols is the vector of continuous indices that are merged. It is only needed if there are > 1 indices and the order is critical.
+# Otherwise, shared continuous indices are identified automatically.
+
+continuousOps <- function(O1, O2, fun, cols = NULL)
+{
+	rescol <- paste(O2@name, "Result", sep = "")
+#	O1 <- unkeep(O1, paste(O1@name, "Source", sep = "")) # Remove these because they will create unpredictable results 
+#	O2 <- unkeep(O2, paste(O2@name, "Source", sep = "")) # with orbind and merge. You should consider removing also other redundant columns.
+
+	# From O1, we only want the shared continuous indices. The rest will return in the end with Ops.
+	commons <- intersect(colnames(O1@output)[O1@marginal], colnames(O2@output)[O2@marginal])
+	contcommon <- commons[sapply(O1@output[commons], FUN = is.numeric)]
+	contcommon <- unique(c(cols, contcommon)) # The user-defined order is implemented if given.
+
+	out <- 	merge( # Take the common continuous indices from the main ovariable and combine with additional data. Fill gaps.
+		O1@output[contcommon], 
+		O2@output[O2@marginal | colnames(O2@output) == rescol], 
+		all = TRUE
+	)
+
+	marginals <- colnames(out)[colnames(out) %in% union(colnames(O2@output)[O2@marginal], colnames(O1@output)[O1@marginal])]
+	discretes <- marginals[!sapply(out[marginals], FUN = is.numeric)] # Find continuous indices among marginals.
+
+	if(!all(marginals %in% contcommon)) out <- fillna(out, setdiff(marginals, contcommon))
+	
+	if(length(discretes) > 0) out <- orbind(out, unique(out[discretes])) # Add a NA between each cell defined by the non-continuous indices.
+
+	# Sort along the continuous indices, each group separately. Groups are unique combinations of discrete index locations.
+	out <- out[do.call(order, (out[unique(c(discretes, contcommon, marginals))])) , ] 
+	
+	out[[rescol]] <- ifelse(
+		is.na(out[[rescol]] & !is.na(out[[contcommon[1]]])), # If value is missing and this is not a group border.
+		c(NA, out[1:(nrow(out) - 1) , rescol]), # value from the previous row.
+		out[[rescol]]
+	)
+	
+	out <- unique(out[!is.na(out[[rescol]]) , ]) # removes all rows that are before the first location in O2.
+	out <- Ovariable(name = sub("Result$", "", rescol), output = out, marginal = colnames(out) %in% marginals)
+	out <- do.call(fun, list(O1, out)) # Perform an Ops or other function with the original main ovariable and the data-enhanced ovariable.
+	return(out)
+}

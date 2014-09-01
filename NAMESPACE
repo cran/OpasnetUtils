@@ -1,4 +1,4 @@
-import(methods, rjson, RCurl, xtable, reshape2, triangle, httpRequest, digest)
+import(methods, rjson, RCurl, xtable, reshape2, triangle, httpRequest, digest, ggplot2, rgdal, sp)
 #importFrom("base", merge, summary)
 #importFrom("graphics", plot)
 exportClasses(ovariable, odecision)
@@ -7,17 +7,17 @@ export(
 	oprint,
 	oapply,
 	orbind,
-	#summary, 
 	op_baseGetData,
 	op_baseGetLocs,
-	#op_baseWrite,
 	opbase.locations,
+	opbase.indices,
 	opbase.obj.exists,
 	opbase.series,
 	opbase.data,
 	opbase.upload,
 	opasnet.data,
 	opasnet.csv,
+	opasnet.page,
 	objects.get,
 	objects.latest,
 	objects.store,
@@ -34,9 +34,6 @@ export(
 	CheckMarginals,
 	CheckInput,
 	ComputeDependencies,
-	#merge,
-	#plot,
-	#print, #not in methods
 	Ops,
 	Math,
 	CheckDecisions,
@@ -49,7 +46,16 @@ export(
 	Ovariable,
 	ddata_apply,
 	fillna,
+	fill.na.merge,
 	"result<-",
-	result#,
-	#xtable
+	result,
+	Optimize,
+	Minimize,
+	combine,
+	openv,
+	openv.setN,
+	odebug,
+	continuousOps,
+	odirichlet,
+	unkeep
 )

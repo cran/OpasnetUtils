@@ -45,6 +45,30 @@ opbase.series <- function(ident, username = NULL, password = NULL, verbose = FAL
 	return(unique(ret))
 }
 
+opbase.indices <- function(ident, act = NULL, username = NULL, password = NULL, verbose = FALSE)
+{
+	query = list()
+	query[['ident']] <- ident
+	query[['username']] <- username
+	query[['password']] <- password
+	object <- opbase.query(query, username, password)
+	
+	if(is.null(object$acts)) stop("Acts not found!")
+	
+	ret = c()
+	
+	if (verbose) print(object$acts)
+	
+	if (is.null(act)) act <- length(object$acts)
+	
+	for (a in object$acts[[act]]$indices)
+	{
+		ret <- c(ret, as.character(a$name))
+	}
+	
+	return(ret)
+}
+
 # Read data from opasnet base 2
 opbase.data <- function(ident, series_id = NULL, subset = NULL, verbose = FALSE, username = NULL, password = NULL, samples = NULL, exclude = NULL, include = NULL, range = NULL, optim_test = TRUE, ...) {
 	
@@ -156,9 +180,11 @@ opbase.data <- function(ident, series_id = NULL, subset = NULL, verbose = FALSE,
 
 	if (is.null(samples) || samples > 0) {
 		out <- out[,!colnames(out) %in% c("sid", "aid", "mean", "sd")]
-		colnames(out)[colnames(out) == "res"] <- "Result"	
-		a <- suppressWarnings(as.numeric(as.character(out$Result)))
-		if (sum(is.na(a)) == 0) out$Result <- a
+		if ('res' %in% colnames(out)) {
+			colnames(out)[colnames(out) == "res"] <- "Result"	
+			a <- suppressWarnings(as.numeric(as.character(out$Result)))
+			if (sum(is.na(a)) == 0) out$Result <- a
+		}
 	} else {
 		out <- out[,!colnames(out) %in% c("sid", "aid")]
 		colnames(out)[colnames(out) == "mean"] <- "Mean"	
@@ -178,7 +204,24 @@ opbase.data <- function(ident, series_id = NULL, subset = NULL, verbose = FALSE,
 }
 
 # Write data to the new opasnet database
-opbase.upload <- function(input, ident = NULL, name = NULL, subset = NULL, obj_type = 'variable', act_type = 'replace', language = 'eng', unit = '', who = NULL, rescol = NULL, chunk_size = NULL, verbose = FALSE, username = NULL, password = NULL, index_units = NULL, index_types = NULL ) {
+opbase.upload <- function(
+	input, 
+	ident = NULL, 
+	name = NULL, 
+	subset = NULL, 
+	obj_type = 'variable', 
+	act_type = 'replace', 
+	language = 'eng', 
+	unit = '', 
+	who = NULL, 
+	rescol = NULL, 
+	chunk_size = NULL, 
+	verbose = FALSE, 
+	username = NULL, 
+	password = NULL, 
+	index_units = NULL, 
+	index_types = NULL
+) {
 	
 	args <- opbase.parse_args()
 	
@@ -225,6 +268,28 @@ opbase.upload <- function(input, ident = NULL, name = NULL, subset = NULL, obj_t
 	page <- as.numeric(page)
 	if (is.na(page)) stop("Could not convert characters following the wiki ident into a page number!\n")
 	if (is.null(who)==TRUE) stop("uploader name not given")
+	
+	# If trying to append, check if object exists first (this functionality should be updated into opbase.obj.exists)
+	if (act_type == 'append') {
+		temp_id <- ident
+		if (!is.null(subset)) {
+			temp_id <- paste(temp_id, subset, sep = ".")
+		}
+		series <- tryCatch(
+			opbase.series(temp_id),
+			error = function(e) {
+				if(grepl("^Query response error: Load by columns: record not found!", e[[1]])) { 
+					return(NULL)
+				} else {
+					stop(paste("Unexpected error:", e[[1]]))
+				}
+			}
+		)
+		if (is.null(series)) {
+			act_type <- 'replace'
+		}
+	}
+	
 	if (is.null(name)==TRUE && act_type == 'replace') stop("object name not given")
 	
 	# Build index list

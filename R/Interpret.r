@@ -11,7 +11,6 @@ interpf <- function(
 	res.char, 
 	brackets.pos, 
 	brackets.length, 
-	minus, 
 	minus.length, 
 	minus.exists, 
 	plusminus, 
@@ -96,10 +95,14 @@ interpf <- function(
 input.interp <- function(res.char, n = 1000, dbug = FALSE) {
 	res.char <- gsub(" ", "", res.char)
 	res.char <- gsub(",", ".", res.char)
-	plusminus <- gregexpr(paste("\\+-|", rawToChar(as.raw(177)), sep = ""), res.char) # saattaa osoittautua ongelmaksi enkoodauksen vuoksi
+	plusminus <- gregexpr(paste("\\+-|", rawToChar(as.raw(177)), sep = ""), res.char)
 	plusminus.length <- as.numeric(unlist(sapply(plusminus, attributes)))
 	plusminus.pos <- unlist(plusminus)
 	minus <- gregexpr("-", res.char)
+	e <- gregexpr("e-|E-", res.char) # ignore negative signs in exponents when data is given in form 1e-27
+	for (i in 1:length(minus)){
+		minus[[i]] <- minus[[i]][!(minus[[i]] %in% (e[[i]] + 1))]
+	}
 	minus.length <- sapply(minus, length)
 	minus.exists <- unlist(minus)[cumsum(c(0, minus.length[-length(minus.length)])) + 1] > 0
 	brackets <- gregexpr("\\(.*\\)", res.char) # matches for brackets "(...)"
@@ -109,13 +112,24 @@ input.interp <- function(res.char, n = 1000, dbug = FALSE) {
 	fromzero <- gregexpr("<", res.char)
 	out <- list()
 	for(i in 1:length(res.char)) {
-		val <- suppressWarnings(as.numeric(res.char[i]))
-		if(is.na(val)) {
-			minus.relevant <- unlist(minus)[(cumsum(c(0, minus.length)) + 1)[i]:cumsum(minus.length)[i]]
-			out[[i]] <- interpf(n, res.char[i], brackets.pos[i], brackets.length[i], minus[i], minus.length[i], minus.exists[i], plusminus[[i]], 
-				plusminus.length[i], plusminus.pos[i], doublePoint[[i]], minus.relevant, fromzero[i], dbug
-			)
-		} else out[[i]] <- rep(val, n)
+		if(res.char[i] %in% c("NA") | nchar(gsub(" ", "", res.char[i])) == 0) {
+			out[[i]] <- NA
+		} else {
+			val <- suppressWarnings(as.numeric(res.char[i]))
+			if(is.na(val)) {
+				minus.relevant <- unlist(minus)[(cumsum(c(0, minus.length)) + 1)[i]:cumsum(minus.length)[i]]
+				out[[i]] <- interpf(n, res.char[i], brackets.pos[i], brackets.length[i], minus.length[i], minus.exists[i], plusminus[[i]], 
+					plusminus.length[i], plusminus.pos[i], doublePoint[[i]], minus.relevant, fromzero[i], dbug
+				)
+			} else out[[i]] <- val
+		}
+	}
+	if (any(sapply(out, length) > 1)) {
+		for(i in 1:length(res.char)) {
+			if (length(out[[i]]) == 1) {
+				out[[i]] <- rep(out[[i]], n)
+			}
+		}
 	}
 	out
 }
@@ -126,7 +140,8 @@ f.iter <- function(x) {
 }
 
 # Data.frame wrapper for the functions.
-interpret <- function(idata, N = 1000, rescol = "Result", dbug = FALSE, ...) {
+interpret <- function(idata, N = NULL, rescol = "Result", dbug = FALSE, ...) {
+	if (length(N) == 0) N <- get("N", envir = openv) # use custom environment variable N if not given
 	if (!is.data.frame(idata)) idata <- as.data.frame(idata)
 	if (ncol(idata) == 0) stop("Empty data.frame!")
 	if (!rescol %in% colnames(idata)) stop(paste("No \"", rescol, "\" column found", sep = ""))
@@ -140,9 +155,11 @@ interpret <- function(idata, N = 1000, rescol = "Result", dbug = FALSE, ...) {
 		out <- data.frame(idata[rep(1:nrow(idata), times = temp.lengths),])
 		out[[rescol]] <- unlist(temp)
 	}
-	dim(temp.lengths) <- length(temp.lengths)
-	out$Iter<- c(apply(temp.lengths, 1, f.iter))
-	out
+	if (prod(temp.lengths) > 1) {
+		dim(temp.lengths) <- length(temp.lengths)
+		out$Iter<- c(apply(temp.lengths, 1, f.iter))
+	}
+	return(out)
 }
 
 setGeneric("interpret")
@@ -150,8 +167,16 @@ setGeneric("interpret")
 setMethod(
 	f = "interpret",
 	signature = signature(idata = "character"),
-	definition = function(idata, N = 1000, dbug = FALSE) {
+	definition = function(idata, N = NULL, dbug = FALSE) {
 		callGeneric(data.frame(Result = idata), N = N, dbug = dbug)
+	}
+)
+
+setMethod(
+	f = "interpret",
+	signature = signature(idata = "numeric"),
+	definition = function(idata, N = NULL, dbug = FALSE) {
+		return(data.frame(Iter = 1:length(idata), Result = idata))
 	}
 )
 
@@ -164,10 +189,14 @@ setMethod(
 #)
 
 # Interpreting empty locations in indices
+# fillna takes a data.frame and fills the cells with NA with each level in that column.
+# object is the data.frame, marginals is a vector of columns (either column names or positions) that are to be filled.
+# This version of fillna accepts column positions (as the previous version) and also column names in marginals.
 
-fillna <- function(object, marginals) {
+fillna <- function (object, marginals) {
 	a <- dropall(object)
-	for(i in marginals) {
+	if(!is.numeric(marginals)) marginals <- match(marginals, colnames(object))
+	for (i in marginals) {
 		a[[i]] <- as.factor(a[[i]])
 		a1 <- a[!is.na(a[[i]]), ]
 		a2 <- a[is.na(a[[i]]), ][-i]
@@ -179,8 +208,65 @@ fillna <- function(object, marginals) {
 	return(a)
 }
 
+is.na.ext <- function(x){
+	a <- is.na(x) | x == "NA" | nchar(gsub(" ", "", x)) == 0 | x == "*"
+	return(a)
+}
+
+# Fill NAs in matching columns in x with union of locations in x and y
+# Compare to fill.na which replaces NA with own 
+
+fill.na.merge <- function(x, y) {
+	common <- intersect(colnames(x@output), colnames(y@output))
+	locs <- list()
+	# Loop through common columns
+	for (i in common) {
+		testx <- is.na.ext(x@output[i])
+		testy <- is.na.ext(y@output[i])
+		# For x
+		if (any(testx)) {
+			locs[[i]] <- union(levels(as.factor(x@output[[i]])), levels(as.factor(y@output[[i]])))
+			
+			if (length(locs[[i]]) > 1) {
+				# Duplicate rows with wildcards
+				temp <- ifelse(testx, length(locs[[i]]), 1)
+				ind <- rep(1:length(temp), temp)
+				x@output <- x@output[ind,]
+				# Insert locations to duplicated rows
+				duplicates <- rep(testx, temp)
+				temp <- as.character(x@output[[i]])
+				# Since number of duplicates is fixed to length of locs this essentially repeats locs 
+				# as many times as there are wildcards in this particular index at the moment. 
+				temp[duplicates] <- locs[[i]]
+				x@output[[i]] <- factor(temp)
+			}
+		}
+		# For y
+		if (any(testy)) {
+			if (length(locs[[i]]) == 0) {
+				locs[[i]] <- union(levels(as.factor(x@output[[i]])), levels(as.factor(y@output[[i]])))
+			}
+			
+			if (length(locs[[i]]) > 1) {
+				# Duplicate rows with wildcards
+				temp <- ifelse(testy, length(locs[[i]]), 1)
+				ind <- rep(1:length(temp), temp)
+				y@output <- y@output[ind,]
+				# Insert locations to duplicated rows
+				duplicates <- rep(testy, temp)
+				temp <- as.character(y@output[[i]])
+				temp[duplicates] <- locs[[i]]
+				y@output[[i]] <- factor(temp)
+			}
+		}
+	}
+	return(list(x, y))
+}
+
 #interpret("500(490-5000)", N = 2, dbug= TRUE)
 
 #interpret("1;2;3;4", N = 20, dbug = TRUE)
 
 #interpret("<9", N = 4, dbug = TRUE)
+
+
