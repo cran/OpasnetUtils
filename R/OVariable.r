@@ -113,15 +113,24 @@ setMethod(
 			#}
 			
 			# If not change prefixless Result to Result.x/y
-			
+			exl_list <- ""
 			if (test1) {
 				colnames(e1@output)[colnames(e1@output)=="Result"] <- "Result.x"
 				rescol1 <- "Result.x"
+				exl_list <- c(exl_list, "Result.x")
 			}
 			
 			if (test2) {
 				colnames(e2@output)[colnames(e2@output)=="Result"] <- "Result.y"
 				rescol2 <- "Result.y"
+				exl_list <- c(exl_list, "Result.y")
+			}
+			
+			test5 <- rescol1 == rescol2
+			if (test5) {
+				colnames(e2@output)[colnames(e2@output)==rescol2] <- "Result.y"
+				rescol2 <- "Result.y"
+				exl_list <- c(exl_list, "Result.y")
 			}
 			
 			# Now merging should be possible without any confusion
@@ -136,10 +145,7 @@ setMethod(
 					"ovariable",
 					#	dependencies = data.frame(Name = c(e1@name, e2@name)),
 					output = out[
-							!colnames(out) %in% c(
-									ifelse(test1, rescol1, character()), 
-									ifelse(test2, rescol2, character())
-							) | colnames(out) == "Result"
+							!colnames(out) %in% exl_list | colnames(out) == "Result"
 					]
 			)
 			out <- CheckMarginals(out, deps = list(e1, e2), verbose = FALSE)
@@ -151,9 +157,11 @@ setMethod(
 		f = "Ops", 
 		signature = signature(e1 = "ovariable", e2 = "numeric"), 
 		definition = function(e1, e2) {
-			e2 <- new("ovariable", output = data.frame(Result = e2))
-			out <- callGeneric(e1, e2) # Call above definition
-			return(out)
+			#e2 <- new("ovariable", output = data.frame(Result = e2))
+			#out <- callGeneric(e1, e2) # Call above definition
+			#out@name <- e1@name
+			result(e1) <- callGeneric(result(e1), e2)
+			return(e1)
 		}
 )
 
@@ -161,13 +169,15 @@ setMethod(
 		f = "Ops", 
 		signature = signature(e1 = "numeric", e2 = "ovariable"), 
 		definition = function(e1, e2) {
-			e1 <- new("ovariable", output = data.frame(Result = e1))
-			out <- callGeneric(e1, e2) # Call above definition
-			return(out)
+			#e1 <- new("ovariable", output = data.frame(Result = e1))
+			#out <- callGeneric(e1, e2) # Call above definition
+			#out@name <- e2@name
+			result(e2) <- callGeneric(e1, result(e2))
+			return(e2)
 		}
 )
 
-# SETMETHOD MERGE ########### merge of ovariables merges the 'output' slot by index columns except 'Unit'.
+# SETMETHOD MERGE ########### merge ovariable outputs
 
 setMethod(f = "merge", 
 		signature = signature(x = "ovariable", y = "ovariable"),
@@ -182,7 +192,47 @@ setMethod(f = "merge",
 			x <- temp[[1]]
 			y <- temp[[2]]
 			
-			temp <- merge(x@output, y@output, all = all, sort = sort, ...)#, by = test)
+			#temp <- merge(x@output, y@output, all = all, sort = sort, ...)#, by = test)
+			by_auto <- intersect(colnames(x@output), colnames(y@output))
+			
+			# Unkeep matching Result columns from y to avoid bugs (false if by_auto is NULL)
+			if (any(grepl("Result$|Source$", by_auto))) {
+				y@output <- y@output[!colnames(y@output) %in% by_auto[grepl("Result$|Source$", by_auto)]]
+				by_auto <- by_auto[!grepl("Result$|Source$", by_auto)]
+			}
+			
+			if (length(by_auto) == 0) {
+				if (ncol(x@output) == 1) {
+					a <- data.frame(rep(x@output[[1]], each = nrow(y@output)))
+					colnames(a) <- colnames(x@output)
+				} else {
+					a <- x@output[rep(1:nrow(x@output), each = nrow(y@output)), ]
+				}
+				temp <- data.frame(a, y@output[rep(1:nrow(y@output), times = nrow(x@output)), ])
+				if (ncol(y@output) == 1) {
+					colnames(temp)[length(colnames(temp))] <- colnames(y@output)
+				}
+			} else {
+				type <- "inner"
+				if (all == TRUE) type <- "full" else  {
+					args <- list() #list(...)
+					if (!is.null(args$all.x)) {
+						if (args$all.x) type <- "left"
+					}
+					if (!is.null(args$all.y)) {
+						if (args$all.y) {
+							if (type == "left") type <- "full" else type <- "right"
+						}
+					}
+				}
+				test <- list()
+				for (i in by_auto) {
+					if (!is.factor(x@output[[i]])) x@output[[i]] <- factor(x@output[[i]])
+					if (!is.factor(y@output[[i]])) y@output[[i]] <- factor(y@output[[i]])
+				}
+				temp <- join(x@output, y@output, by_auto, type, "all")
+			}
+			
 			temp <- new("ovariable", output = temp)
 			#temp <- CheckMarginals(temp, deps = list(x,y))
 			return(temp)

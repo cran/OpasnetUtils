@@ -1,21 +1,25 @@
 Package: OpasnetUtils
 Type: Package
-Title: Utility functions for dealing with data in Opasnet
-        (www.opasnet.org) environment.
-Version: 1.1.0
+Title: Opasnet Modelling Environment Utility Functions
+Version: 1.2.0
 Author: Teemu Rintala, Einari Happonen, Jouni Tuomisto
 Maintainer: Teemu Rintala <teemu.rintala.a@gmail.com>
-Description: This package is primarily developed for executing open assessments and modeling in Opasnet environment (http://www.opasnet.org).
-  The operating principle of this package is maximum openness and modularity. Variables are defined publicly on wiki pages using wiki inputs/tables, 
-  our database and R code. Using any predefined variable is very easy: fetch the variable from our servers (or your own) and evaluate it. Actual 
-  evaluation of variables is done lazily by default: when the evaluation of a variable is explicitly called, all variables it is dependent 
-  on are evaluated recursively. There are also a couple of impact assessment tools such as GIS functions in the package. 
-  To learn more go to \url{http://en.opasnet.org/w/Modelling_in_Opasnet}.
+Description: Contains tools for open assessment and modelling in Opasnet,
+ a wiki-based web site and workspace for societal decision making
+ (see <http://en.opasnet.org/w/Main_Page> for more information).
+ The core principle of the workspace is maximal openness and modularity.
+ Variables are defined on public wiki pages using wiki inputs/tables,
+ databases and R code. This package provides the functionality to download and use these
+ variables. It also contains health impact assessment tools such as
+ spatial methods for exposure modelling.
 Imports: methods, rjson, RCurl, reshape2, triangle, httpRequest,
-        digest, xtable, ggplot2, rgdal, sp
+        digest, xtable, ggplot2, rgdal, sp, plyr
 License: GPL-3
 LazyLoad: yes
-Packaged: 2014-09-01 09:36:55 UTC; Teemu
+URL: http://en.opasnet.org/w/Main_Page ,
+        http://en.opasnet.org/w/Modelling_in_Opasnet ,
+        http://en.opasnet.org/w/OpasnetUtils
 NeedsCompilation: no
+Packaged: 2015-06-03 10:26:12 UTC; Maniac
 Repository: CRAN
-Date/Publication: 2014-09-01 15:53:08
+Date/Publication: 2015-06-03 14:30:22
